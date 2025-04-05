@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SFDay Times</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body {
+      font-family: "Georgia", serif;
+      margin: 40px;
+      max-width: 900px;
+    }
+    h1, h2, h3 {
+      font-family: "Georgia", serif;
+    }
+    #masthead {
+      text-align: center;
+      border-bottom: 2px solid black;
+      padding-bottom: 10px;
+      margin-bottom: 20px;
+    }
+    #masthead h1 {
+      font-size: 36px;
+      font-weight: bold;
+      margin: 0;
+    }
+    #masthead p {
+      font-size: 14px;
+      margin: 0;
+    }
+    .section {
+      border-top: 1px solid #ccc;
+      margin-top: 30px;
+      padding-top: 10px;
+    }
+    .article {
+      border: 1px solid #ddd;
+      padding: 10px;
+      margin-bottom: 20px;
+    }
+    label {
+      font-weight: bold;
+      display: block;
+      margin-top: 10px;
+    }
+    input[type="text"], textarea {
+      width: 100%;
+      font-size: 14px;
+    }
+    textarea {
+      height: 60px;
+    }
+    .image-preview {
+      margin-top: 5px;
+      max-width: 150px;
+      max-height: 150px;
+    }
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div id="masthead">
+    <h1>SFDay Times</h1>
+    <p id="dateLine"></p>
+  </div>
+
+  <label>OpenAI API Key:</label>
+  <input type="text" id="apiKey" placeholder="sk-..." />
+
+  <div id="news" class="section">
+    <h2>News</h2>
+    <div class="article-list"></div>
+    <button onclick="addArticle('news')">+ Add News Article</button>
+  </div>
+
+  <div id="sports" class="section">
+    <h2>Sports</h2>
+    <div class="article-list"></div>
+    <button onclick="addArticle('sports')">+ Add Sports Article</button>
+  </div>
+
+  <div id="calendar" class="section">
+    <h2>Calendar</h2>
+    <div class="article-list"></div>
+    <button onclick="addArticle('calendar')">+ Add Calendar Item</button>
+  </div>
+
+  <div id="games" class="section">
+    <h2>Games</h2>
+    <div class="article-list"></div>
+    <button onclick="addArticle('games')">+ Add Game or Puzzle</button>
+  </div>
+
+  <button onclick="generatePDF()">Generate Newspaper PDF</button>
+
+  <script>
+    const { jsPDF } = window.jspdf;
+    document.getElementById("dateLine").textContent = new Date().toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    function addArticle(sectionId) {
+      const container = document.querySelector(`#${sectionId} .article-list`);
+      const div = document.createElement("div");
+      div.className = "article";
+      div.innerHTML = `
+        <label>Headline:</label>
+        <input type="text" class="headline">
+        <label>Prompt or Content:</label>
+        <textarea class="prompt"></textarea>
+        <label>Image (optional):</label>
+        <input type="file" class="imageUpload" accept="image/*">
+        <img class="image-preview" style="display:none;" />
+      `;
+      container.appendChild(div);
+
+      const imageInput = div.querySelector('.imageUpload');
+      const preview = div.querySelector('.image-preview');
+      imageInput.addEventListener('change', function () {
+        const file = this.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = function (e) {
+            preview.src = e.target.result;
+            preview.style.display = 'block';
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+    }
+
+    async function generatePDF() {
+      const apiKey = document.getElementById('apiKey').value.trim();
+      const doc = new jsPDF({ unit: "pt", format: "letter" });
+      const margin = 40;
+      const gap = 20;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const columnWidth = (pageWidth - margin * 2 - gap) / 2;
+      let x = margin, y = margin;
+
+      function addHeader() {
+        doc.setFont("Times", "bold");
+        doc.setFontSize(24);
+        doc.text("SFDay Times", pageWidth / 2, y, { align: "center" });
+        y += 30;
+        doc.setFontSize(12);
+        doc.text(new Date().toLocaleDateString(), pageWidth / 2, y, { align: "center" });
+        y += 20;
+        doc.setLineWidth(1);
+        doc.line(margin, y, pageWidth - margin, y);
+        y += 20;
+      }
+
+      addHeader();
+
+      const sections = ['news', 'sports', 'calendar', 'games'];
+
+      for (const section of sections) {
+        const articles = document.querySelectorAll(`#${section} .article`);
+        if (articles.length === 0) continue;
+
+        doc.setFont("Times", "bold");
+        doc.setFontSize(16);
+        doc.text(section.charAt(0).toUpperCase() + section.slice(1), x, y);
+        y += 20;
+
+        for (const article of articles) {
+          const headline = article.querySelector('.headline').value.trim();
+          let prompt = article.querySelector('.prompt').value.trim();
+          const imageInput = article.querySelector('.imageUpload');
+          const file = imageInput.files[0];
+
+          if (!prompt) {
+            prompt = `Write a short school newspaper item for the ${section} section.`;
+          }
+
+          let content = await fetchFromOpenAI(apiKey, prompt);
+
+          // Headline
+          doc.setFont("Times", "bold");
+          doc.setFontSize(14);
+          const hLines = doc.splitTextToSize(headline, columnWidth);
+          for (const line of hLines) {
+            if (y > 750) {
+              doc.addPage();
+              y = margin;
+              x = margin;
+            }
+            doc.text(line, x, y);
+            y += 16;
+          }
+
+          // Image
+          if (file) {
+            const imgData = await toDataURL(file);
+            const img = new Image();
+            img.src = imgData;
+            await new Promise(r => img.onload = r);
+            const iw = columnWidth;
+            const ih = iw * (img.height / img.width);
+            if (y + ih > 750) {
+              doc.addPage();
+              y = margin;
+              x = margin;
+            }
+            doc.addImage(img, 'JPEG', x, y, iw, ih);
+            y += ih + 10;
+          }
+
+          // Content
+          doc.setFont("Times", "normal");
+          doc.setFontSize(11);
+          const lines = doc.splitTextToSize(content, columnWidth);
+          for (const line of lines) {
+            if (y > 750) {
+              if (x === margin) {
+                x += columnWidth + gap;
+                y = margin;
+              } else {
+                doc.addPage();
+                x = margin;
+                y = margin;
+              }
+            }
+            doc.text(line, x, y);
+            y += 14;
+          }
+          y += 10;
+        }
+
+        y += 20;
+        if (y > 700) {
+          doc.addPage();
+          x = margin;
+          y = margin;
+        }
+      }
+
+      doc.save("sfday-times.pdf");
+    }
+
+    async function fetchFromOpenAI(apiKey, prompt) {
+      try {
+        const res = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "gpt-4",
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 600
+          })
+        });
+        const data = await res.json();
+        return data.choices?.[0]?.message?.content?.trim() || "Could not generate content.";
+      } catch {
+        return "Could not generate content.";
+      }
+    }
+
+    function toDataURL(file) {
+      return new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Add one article per section by default
+    ['news', 'sports', 'calendar', 'games'].forEach(addArticle);
+  </script>
+</body>
+</html>
